@@ -10,23 +10,28 @@ import matplotlib.pyplot as plt
 
 
 def die(msg, code=1):
+    """Print a message to stderr and exit with the given code."""
     print(msg, file=sys.stderr)
     sys.exit(code)
 
 
 def get_env():
+    """Read IRIS connection settings from environment, exiting if required vars are missing."""
     url = os.environ.get("IRIS_URL")
     key = os.environ.get("IRIS_API_KEY")
     if not url:
         die("IRIS_URL is not set. Example: https://iris.example.local")
     if not key:
         die("IRIS_API_KEY is not set. Get one from 'My settings > API Key' in IRIS.")
+    # Env vars are strings, so accept any common falsy spelling rather than just "0".
     verify = os.environ.get("IRIS_VERIFY_SSL", "1") not in ("0", "false", "False", "no")
     return url.rstrip("/"), key, verify
 
 
 def fetch_cases(base_url, api_key, verify_ssl):
+    """Call GET /manage/cases/list and return the list of case objects."""
     endpoint = f"{base_url}/manage/cases/list"
+    # Bearer token in the Authorization header is the auth scheme documented in the v2.0.2 API reference.
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     try:
         resp = requests.get(endpoint, headers=headers, verify=verify_ssl, timeout=30)
@@ -69,6 +74,7 @@ def unwrap_cases(payload):
 
 
 def aggregate(cases):
+    """Tally cases by open_date and by opened_by; return (per_day, per_opener, skipped_count)."""
     per_day = Counter()
     per_opener = Counter()
     skipped = 0
@@ -89,7 +95,11 @@ def aggregate(cases):
 
 
 def fill_date_range(per_day):
-    """Return (sorted_dates, counts) with zero-filled gaps between min and max."""
+    """Return (sorted_dates, counts) with zero-filled gaps between min and max.
+
+    Zero-filling matters so the timeline reads correctly — without it, a quiet
+    week would visually collapse and make adjacent active days look contiguous.
+    """
     if not per_day:
         return [], []
     start = min(per_day)
@@ -105,6 +115,7 @@ def fill_date_range(per_day):
 
 
 def plot_per_day(per_day):
+    """Render the cases-opened-per-day bar chart into a new matplotlib figure."""
     dates, counts = fill_date_range(per_day)
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.bar([d.isoformat() for d in dates], counts, color="steelblue")
@@ -116,6 +127,9 @@ def plot_per_day(per_day):
 
 
 def plot_per_opener(per_opener):
+    """Render the cases-by-opener horizontal bar chart into a new matplotlib figure."""
+    # Horizontal bars keep long usernames readable; sorting ascending puts the
+    # largest bar at the top of the chart (matplotlib's y-axis grows upward).
     items = sorted(per_opener.items(), key=lambda kv: kv[1])
     names = [k for k, _ in items]
     counts = [v for _, v in items]
@@ -128,6 +142,7 @@ def plot_per_opener(per_opener):
 
 
 def main():
+    """Fetch cases from IRIS, aggregate them, and show the two charts."""
     base_url, api_key, verify_ssl = get_env()
     cases = fetch_cases(base_url, api_key, verify_ssl)
 
